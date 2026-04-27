@@ -1,6 +1,6 @@
-﻿Set-ExecutionPolicy Bypass
-Set-Item Env:\SuppressAzurePowerShellBreakingChangeWarnings "true"
-
+﻿If(-not (Get-Module -ListAvailable -Name Az.Accounts)){
+    Write-Warning "PowerZure imported, but Az.Accounts was not found. Run Test-PowerZureDependency for details."
+}
 
 function ConvertFrom-SecureStringToken
 {
@@ -120,6 +120,56 @@ function Get-AzureCurrentUser
     else{
 	Write-Error "Please login with Connect-AzAccount" -Category ConnectionError
     }  
+	}
+
+function Test-PowerZureDependency
+{
+<#
+.SYNOPSIS
+    Checks local PowerZure dependencies and login state.
+#>
+    [CmdletBinding()]
+    Param()
+
+    $Results = New-Object System.Collections.ArrayList
+    $Version = $PSVersionTable.PSVersion
+    $PowerShellOk = $Version -ge [Version]'5.1'
+    $PowerShellMessage = If($PowerShellOk){"PowerShell $Version is supported."}else{"Az requires at least PowerShell 5.1."}
+    If(!$PowerShellOk){Write-Warning $PowerShellMessage}
+    [void]$Results.Add([PSCustomObject]@{
+        Check = 'PowerShellVersion'
+        Passed = $PowerShellOk
+        Message = $PowerShellMessage
+    })
+
+    $AzAccounts = Get-Module -Name Az.Accounts -ListAvailable
+    $AzAccountsOk = [bool]$AzAccounts
+    $AzAccountsMessage = If($AzAccountsOk){"Az.Accounts is available."}else{"Az.Accounts is not installed. Install the Az module before using PowerZure Azure operations."}
+    If(!$AzAccountsOk){Write-Warning $AzAccountsMessage}
+    [void]$Results.Add([PSCustomObject]@{
+        Check = 'Az.Accounts'
+        Passed = $AzAccountsOk
+        Message = $AzAccountsMessage
+    })
+
+    $GetAzContext = Get-Command Get-AzContext -ErrorAction SilentlyContinue
+    If($GetAzContext){
+        $Context = Get-AzContext -ErrorAction SilentlyContinue
+        $LoginOk = [bool]$Context
+        $LoginMessage = If($LoginOk){"Connected to Azure as $($Context.Account)."}else{"No active Azure context. Run Connect-AzAccount before using Azure operations."}
+    }
+    else{
+        $LoginOk = $false
+        $LoginMessage = "Get-AzContext is unavailable because Az.Accounts is not loaded."
+    }
+    If(!$LoginOk){Write-Warning $LoginMessage}
+    [void]$Results.Add([PSCustomObject]@{
+        Check = 'AzureContext'
+        Passed = $LoginOk
+        Message = $LoginMessage
+    })
+
+    $Results
 }
 
 function Invoke-PowerZure
@@ -142,43 +192,7 @@ function Invoke-PowerZure
 
     If($Checks)
     {
-            $ErrorActionPreference = "Stop"
-            $Version = $PSVersionTable.PSVersion.Major
-            If ($Version -lt 5)
-            {
-                Write-Host "Az requires at least PowerShell 5.1"
-                Exit
-            }
-            #Module Check
-            $Modules = Get-InstalledModule
-            if ($Modules.Name -notcontains 'Az.Accounts')
-            {
-	            Write-host "Install Az PowerShell Module?" -ForegroundColor Yellow 
-                $Readhost = Read-Host " ( y / n ) " 
-                if ($ReadHost -eq 'y' -or $Readhost -eq 'yes') 
-                {
-	                Install-Module -Name Az -AllowClobber -Scope CurrentUser
-	                $Modules = Get-InstalledModule       
-		            if ($Modules.Name -contains 'Az.Accounts')
-		            {
-			            Write-Host "Successfully installed Az module. Please open a new PowerShell window and re-import PowerZure to continue" -ForegroundColor Yellow                      
-		            }
-                }
-	
-	            if ($ReadHost -eq 'n' -or $Readhost -eq 'no') 
-	            {
-		            Write-Host "Az PowerShell not installed, PowerZure cannot operate without this module." -ForegroundColor Red
-                    Exit
-	            }
-            }
-            #Login Check
-            $APSUser = Get-AzContext
-            if(!$APSUser){
-            Write-Error "Please login with Connect-AzAccount" -Category ConnectionError
-            Pause
-            Exit
-            }
-
+            Test-PowerZureDependency
     }
      
     if($h -eq $true)
@@ -273,8 +287,6 @@ Write-Host @'
 			Write-Host "Please login with Connect-AzAccount" -ForegroundColor Red
 		}            
 }
-
-Invoke-PowerZure -Checks -Banner
 
 function Set-AzureSubscription
 {
