@@ -2,6 +2,35 @@
 Set-Item Env:\SuppressAzurePowerShellBreakingChangeWarnings "true"
 
 
+function ConvertFrom-SecureStringToken
+{
+    [CmdletBinding()]
+    Param(
+    [Parameter(Mandatory=$false,ValueFromPipeline=$true)][AllowNull()][Object]$Token = $null)
+
+    Process {
+        If($null -eq $Token){
+            return $null
+        }
+
+        If($Token -is [System.Security.SecureString]){
+            $BSTR = [System.IntPtr]::Zero
+            Try {
+                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Token)
+                [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($BSTR)
+            }
+            Finally {
+                If($BSTR -ne [System.IntPtr]::Zero){
+                    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+                }
+            }
+        }
+        else{
+            [String]$Token
+        }
+    }
+}
+
 function Get-AzureToken
 {
 
@@ -32,7 +61,8 @@ function Get-AzureToken
     If($AAD){$token = Get-AzAccessToken -ResourceTypeName AadGraph}
     If($REST){$token = Get-AzAccessToken}
     If($Graph){$token = Get-AzAccessToken -ResourceUrl "https://graph.microsoft.com/"}
-    $Headers.Add("Authorization","Bearer $($token.token)")    
+    $TokenValue = ConvertFrom-SecureStringToken -Token $token.token
+    $Headers.Add("Authorization","Bearer $TokenValue")    
     $Headers
 }
 
@@ -1787,10 +1817,13 @@ function Get-AzureIntuneScript
 	Get-AzureInTuneScript
 #>
     If(!$GraphToken){
-        Get-AzureToken
+        $Headers = Get-AzureToken -Graph
     }
-    $Headers = @{}
-    $Headers.Add("Authorization","Bearer"+ " " + "$($GraphToken)")    
+    else{
+        $GraphTokenValue = ConvertFrom-SecureStringToken -Token $GraphToken
+        $Headers = @{}
+        $Headers.Add("Authorization","Bearer"+ " " + "$GraphTokenValue")
+    }    
     $req = Invoke-RestMethod -uri "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts" -Headers $Headers
     $req.value
 }
@@ -2041,8 +2074,9 @@ function Invoke-AzureVMUserDataCommand
 	$Resource = Get-AzResource -Name $VM
 	$ResourceID = $Resource.ResourceId
 	$Headers = @{}
-    $Headers.Add("Authorization","Bearer $($token.token)") 
-	$FullCommand = $Command + '%' + $token.token + '%' + $ResourceID
+    $TokenValue = ConvertFrom-SecureStringToken -Token $token.token
+    $Headers.Add("Authorization","Bearer $TokenValue") 
+	$FullCommand = $Command + '%' + $TokenValue + '%' + $ResourceID
 	$Bytes = [System.Text.Encoding]::Unicode.GetBytes($FullCommand)
 	$EncodedText =[Convert]::ToBase64String($Bytes)
 	$json = '{"properties": { "userData": ' + '"' + $EncodedText + '",	}}'
