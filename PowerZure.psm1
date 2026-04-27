@@ -290,7 +290,15 @@ function Set-AzureSubscription
     [CmdletBinding()]
     Param(
     [Parameter(Mandatory=$false,HelpMessage='Enter a subscription ID. Try Show-AzureCurrentUser to see a list of subscriptions')][String]$Id = $null) 
-    $subs = Get-AzSubscription	
+    $subs = Get-AzSubscription
+    If($Id){
+        $choice = $subs | Where-Object {$_.Id -eq $Id}
+        If(!$choice){
+            Write-Error "Subscription '$Id' was not found." -Category ObjectNotFound
+            return
+        }
+        return Set-AzContext -SubscriptionId $choice.Id
+    }
     Write-Host "Select a subscription to choose as the default subscription:" -ForegroundColor Yellow
     Write-Host "" 
     $i=1
