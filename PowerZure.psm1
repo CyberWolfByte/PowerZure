@@ -159,8 +159,7 @@ function Get-AzureCurrentUser
         }
 		$user = Invoke-RestMethod -Headers $Headers -Uri 'https://graph.microsoft.com/beta/me'
 		$userid=$user.id
-        $MembershipsReq = Invoke-RestMethod -headers $Headers -uri "https://graph.microsoft.com/beta/users/$userid/memberOf" 
-        $Memberships = $MembershipsReq.value
+        $Memberships = Invoke-GraphRequestPaged -Headers $Headers -Uri "https://graph.microsoft.com/beta/users/$userid/memberOf"
         $Groups = New-Object System.Collections.ArrayList
         $AADRoles = New-Object System.Collections.ArrayList
         ForEach ($Membership in $Memberships){
@@ -411,12 +410,11 @@ function Get-AzureRoleMember
     Param(
     [Parameter(Mandatory=$True)][String]$Role = $null)
     $Headers = Get-AzureToken -Graph
-    $rolesreq = Invoke-RestMethod -Headers $Headers -Uri 'https://graph.microsoft.com/beta/directoryRoles'
-    $roles = $rolesreq.value
+    $roles = Invoke-GraphRequestPaged -Headers $Headers -Uri 'https://graph.microsoft.com/beta/directoryRoles'
     $roledata = $roles | Where-Object {$_.displayName -eq $Role}
     $id = $roledata.id
-    $membersreq = Invoke-RestMethod -Headers $Headers -Uri https://graph.microsoft.com/beta/directoryRoles/$id/members
-    $membersreq.value | Select-Object -Property '@odata.type', userPrincipalName, id
+    $members = Invoke-GraphRequestPaged -Headers $Headers -Uri https://graph.microsoft.com/beta/directoryRoles/$id/members
+    $members | Select-Object -Property '@odata.type', userPrincipalName, id
 
 }
 
@@ -454,8 +452,7 @@ function Get-AzureUser
                 $obj = New-Object -TypeName psobject
 			    $userid = $user.id
                 $userdata = Invoke-RestMethod -headers $Headers -uri "https://graph.microsoft.com/beta/users/$userid" 
-                $MembershipsReq = Invoke-RestMethod -headers $Headers -uri "https://graph.microsoft.com/beta/users/$userid/memberOf" 
-                $Memberships = $MembershipsReq.value
+                $Memberships = Invoke-GraphRequestPaged -Headers $Headers -Uri "https://graph.microsoft.com/beta/users/$userid/memberOf"
                 $Groups = New-Object System.Collections.ArrayList
                 $EntraRoles = New-Object System.Collections.ArrayList
                 ForEach ($Membership in $Memberships){
@@ -485,8 +482,7 @@ function Get-AzureUser
 	    $userdata = Get-AzADUser -UserPrincipalName $Username
         $userid = $userdata.Id
         $userdata = Invoke-RestMethod -headers $Headers -uri "https://graph.microsoft.com/beta/users/$userid" 
-        $MembershipsReq = Invoke-RestMethod -headers $Headers -uri "https://graph.microsoft.com/beta/users/$userid/memberOf" 
-        $Memberships = $MembershipsReq.value
+        $Memberships = Invoke-GraphRequestPaged -Headers $Headers -Uri "https://graph.microsoft.com/beta/users/$userid/memberOf"
         $Groups = New-Object System.Collections.ArrayList
         $EntraRoles = New-Object System.Collections.ArrayList
         ForEach ($Membership in $Memberships){
@@ -510,8 +506,7 @@ function Get-AzureUser
     If($Id){
 	    $obj = New-Object -TypeName psobject
 	    $userdata = Invoke-RestMethod -headers $Headers -uri "https://graph.microsoft.com/beta/users/$id" 
-        $MembershipsReq = Invoke-RestMethod -headers $Headers -uri "https://graph.microsoft.com/beta/users/$id/memberOf" 
-        $Memberships = $MembershipsReq.value
+        $Memberships = Invoke-GraphRequestPaged -Headers $Headers -Uri "https://graph.microsoft.com/beta/users/$id/memberOf"
         $Groups = New-Object System.Collections.ArrayList
         $EntraRoles = New-Object System.Collections.ArrayList
         ForEach ($Membership in $Memberships){
@@ -544,8 +539,7 @@ function Get-AzureUser
         }
 	    $obj = New-Object -TypeName psobject
 	    $userdata = Invoke-RestMethod -headers $Headers -uri "https://graph.microsoft.com/beta/users/$id" 
-        $MembershipsReq = Invoke-RestMethod -headers $Headers -uri "https://graph.microsoft.com/beta/users/$id/memberOf" 
-        $Memberships = $MembershipsReq.value
+        $Memberships = Invoke-GraphRequestPaged -Headers $Headers -Uri "https://graph.microsoft.com/beta/users/$id/memberOf"
         $Groups = New-Object System.Collections.ArrayList
         $EntraRoles = New-Object System.Collections.ArrayList
         ForEach ($Membership in $Memberships){
@@ -590,8 +584,7 @@ function Get-AzureGroupMember
     $id = $groupdata.id   
     }
     $Headers = Get-AzureToken -Graph  
-	$membersREQ = Invoke-RESTMethod -uri https://graph.microsoft.com/beta/groups/$id/members -Headers $Headers
-    $membersREQ.value
+	Invoke-GraphRequestPaged -Uri https://graph.microsoft.com/beta/groups/$id/members -Headers $Headers
 }
 
 function Add-AzureGroupMember
@@ -698,20 +691,19 @@ function Get-AzureTarget
             $id=$Context.Acccount.id
         }
     }
-    $Memberships = Invoke-RestMethod -Headers $Headers -Uri https://graph.microsoft.com/v1.0/users/$Id/MemberOf
-    $gids = $Memberships.value.id 
+    $Memberships = Invoke-GraphRequestPaged -Headers $Headers -Uri https://graph.microsoft.com/v1.0/users/$Id/MemberOf
+    $gids = $Memberships.id
     $Headers.Add('ConsistencyLevel','eventual')
     $appcount = Invoke-RestMethod -Headers $Headers -Uri 'https://graph.microsoft.com/beta/applications/$count'
     If($AppCount -gt 100){
         $prompt = Read-Host "There are $AppCount Applications, this may take awhile. Do you want to continue? [Y/N]"
         If($prompt -match 'y'){
-            $appdata = Invoke-RestMethod -Headers $Headers -Uri 'https://graph.microsoft.com/beta/applications'
-	        $apps = $appdata.value
+            $apps = Invoke-GraphRequestPaged -Headers $Headers -Uri 'https://graph.microsoft.com/beta/applications'
 	        ForEach($app in $apps){   
                 $appobj = New-Object -TypeName psobject 
                 $appid = $app.id
-                $OwnedApps = Invoke-RestMethod -Headers $Headers -Uri "https://graph.microsoft.com/beta/applications/$appid/owners"
-                $OwnedByUser=$OwnedApps.value | Where-Object {$_.userPrincipalName -eq $upn}
+                $OwnedApps = Invoke-GraphRequestPaged -Headers $Headers -Uri "https://graph.microsoft.com/beta/applications/$appid/owners"
+                $OwnedByUser=$OwnedApps | Where-Object {$_.userPrincipalName -eq $upn}
                 $coll = New-Object System.Collections.ArrayList
 		        If($OwnedByUser)
 		        {       
@@ -724,13 +716,12 @@ function Get-AzureTarget
         else{}
     }
     else{
-        $appdata = Invoke-RestMethod -Headers $Headers -Uri 'https://graph.microsoft.com/beta/applications'
-	    $apps = $appdata.value
+        $apps = Invoke-GraphRequestPaged -Headers $Headers -Uri 'https://graph.microsoft.com/beta/applications'
 	    ForEach($app in $apps){   
             $appobj = New-Object -TypeName psobject 
             $appid = $app.id
-            $OwnedApps = Invoke-RestMethod -Headers $Headers -Uri "https://graph.microsoft.com/beta/applications/$appid/owners"
-            $OwnedByUser=$OwnedApps.value | Where-Object {$_.userPrincipalName -eq $upn}
+            $OwnedApps = Invoke-GraphRequestPaged -Headers $Headers -Uri "https://graph.microsoft.com/beta/applications/$appid/owners"
+            $OwnedByUser=$OwnedApps | Where-Object {$_.userPrincipalName -eq $upn}
             $coll = New-Object System.Collections.ArrayList
 		    If($OwnedByUser)
 		    {       
@@ -1704,17 +1695,16 @@ Get-AzureAppOwners
 #>
     $Headers = Get-AzureToken -Graph
 	$Uri = 'https://graph.microsoft.com/beta/applications'
-	$appdata = Invoke-RestMethod -Headers $Headers -Uri $Uri
-	$apps = $appdata.value
+	$apps = Invoke-GraphRequestPaged -Headers $Headers -Uri $Uri
 	ForEach($app in $apps)
 	{
 		$id = $app.id
-		$Owners = Invoke-RestMethod -Headers $Headers -Uri "https://graph.microsoft.com/beta/applications/$id/owners"
-		If($Owners.value.userPrincipalName)
+		$Owners = Invoke-GraphRequestPaged -Headers $Headers -Uri "https://graph.microsoft.com/beta/applications/$id/owners"
+		If($Owners.userPrincipalName)
 		{
             $obj = New-Object -TypeName psobject
             $obj | Add-Member -MemberType NoteProperty -Name AppName -Value $app.DisplayName
-            $obj | Add-Member -MemberType NoteProperty -Name OwnerName -Value $Owners.value.userPrincipalName
+            $obj | Add-Member -MemberType NoteProperty -Name OwnerName -Value $Owners.userPrincipalName
             $obj
 		}
 	}
@@ -1997,15 +1987,14 @@ function Get-AzureDeviceOwner
 	Get-AzureDeviceOwner
 #>
     $Headers = Get-AzureToken -Graph
-    $req = Invoke-RestMethod -uri https://graph.microsoft.com/v1.0/devices -Headers $Headers
-    $devices = $req.value
+    $devices = Invoke-GraphRequestPaged -Uri https://graph.microsoft.com/v1.0/devices -Headers $Headers
     ForEach($device in $devices){
         $id = $device.id
-        $ownerreq = Invoke-RestMethod -uri https://graph.microsoft.com/v1.0/devices/$id/registeredOwners -Headers $Headers
-        $ownerid = $ownerreq.value.id
+        $ownerreq = Invoke-GraphRequestPaged -Uri https://graph.microsoft.com/v1.0/devices/$id/registeredOwners -Headers $Headers
+        $ownerid = $ownerreq.id
         If($Ownerid){
-            $ownerDN = $ownerreq.value.displayName
-            $ownerUPN = $ownerreq.value.userPrincipalName
+            $ownerDN = $ownerreq.displayName
+            $ownerUPN = $ownerreq.userPrincipalName
             $AzureDeviceOwner = [PSCustomObject]@{
                 DeviceDisplayname   = $Device.Displayname
                 DeviceID            = $Device.id
@@ -2013,7 +2002,7 @@ function Get-AzureDeviceOwner
                 OSVersion           = $device.operatingSystemVersion
                 OwnerDisplayName    = $ownerDN
                 OwnerID             = $Ownerid
-                OwnerType           = $Ownerreq.value.'@odata.type'
+                OwnerType           = $Ownerreq.'@odata.type'
                 OwnerUPN            = $ownerUPN       
             }
             $AzureDeviceOwner
@@ -2146,8 +2135,8 @@ function Get-AzureManagedIdentity
     Gathers all Managed Identities in Entra
 #>
 	$Headers = Get-AzureToken -Graph 
-    $req = Invoke-RestMethod -Uri 'https://graph.microsoft.com/beta/servicePrincipals' -Headers $Headers
-    $req.value | where-object {$_.ServicePrincipalNames -match 'https://identity.azure.net'} | Select-Object -Property DisplayName, appId, AlternativeNames
+    $req = Invoke-GraphRequestPaged -Uri 'https://graph.microsoft.com/beta/servicePrincipals' -Headers $Headers
+    $req | where-object {$_.ServicePrincipalNames -match 'https://identity.azure.net'} | Select-Object -Property DisplayName, appId, AlternativeNames
 
 }
 
