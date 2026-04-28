@@ -31,6 +31,55 @@ function ConvertFrom-SecureStringToken
     }
 }
 
+function Invoke-GraphRequestPaged
+{
+    [CmdletBinding()]
+    Param(
+    [Parameter(Mandatory=$true)][String]$Uri,
+    [Parameter(Mandatory=$false)][Hashtable]$Headers = @{},
+    [Parameter(Mandatory=$false)][String]$Method = 'GET',
+    [Parameter(Mandatory=$false)][AllowNull()][Object]$Body = $null,
+    [Parameter(Mandatory=$false)][ValidateRange(1, [Int32]::MaxValue)][Int32]$MaximumPages = [Int32]::MaxValue)
+
+    $CurrentUri = $Uri
+    $PageCount = 0
+    $Values = New-Object System.Collections.ArrayList
+
+    while($CurrentUri -and ($PageCount -lt $MaximumPages)){
+        $RequestParams = @{
+            Uri = $CurrentUri
+            Method = $Method
+            Headers = $Headers
+        }
+
+        If($null -ne $Body){
+            $RequestParams.Body = $Body
+        }
+
+        $Response = Invoke-RestMethod @RequestParams
+        $PageCount++
+
+        If($Response.PSObject.Properties.Name -notcontains 'value'){
+            return $Response
+        }
+
+        ForEach($Item in $Response.value){
+            [void]$Values.Add($Item)
+        }
+
+        If($Response.PSObject.Properties.Name -contains '@odata.nextLink'){
+            $CurrentUri = $Response.'@odata.nextLink'
+            $Method = 'GET'
+            $Body = $null
+        }
+        else{
+            $CurrentUri = $null
+        }
+    }
+
+    $Values.ToArray()
+}
+
 function Get-AzureKeyVaultSecretPlainText
 {
     [CmdletBinding()]
