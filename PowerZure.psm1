@@ -31,6 +31,29 @@ function ConvertFrom-SecureStringToken
     }
 }
 
+function Get-AzureKeyVaultSecretPlainText
+{
+    [CmdletBinding()]
+    Param(
+    [Parameter(Mandatory=$true)][String]$VaultName,
+    [Parameter(Mandatory=$true)][String]$Name)
+
+    $SecretCommand = Get-Command Get-AzKeyVaultSecret -ErrorAction Stop
+    If($SecretCommand.Parameters.ContainsKey('AsPlainText')){
+        return Get-AzKeyVaultSecret -VaultName $VaultName -Name $Name -AsPlainText
+    }
+
+    $Secret = Get-AzKeyVaultSecret -VaultName $VaultName -Name $Name
+    If($null -ne $Secret.SecretValueText){
+        return $Secret.SecretValueText
+    }
+    If($Secret.SecretValue -is [System.Security.SecureString]){
+        return ConvertFrom-SecureStringToken -Token $Secret.SecretValue
+    }
+
+    $Secret.SecretValue
+}
+
 function Get-AzureToken
 {
 
@@ -793,12 +816,12 @@ function Get-AzureKeyVaultContent
 			$Secrets = Get-AzKeyVaultSecret -VaultName $vaultsname
 			ForEach($Secret in $Secrets)
 			{
-				$Value = Get-AzKeyVaultSecret -VaultName $vaultsname -name $Secret.name
+				$Value = Get-AzureKeyVaultSecretPlainText -VaultName $vaultsname -Name $Secret.name
 
 				$obj = New-Object -TypeName psobject	
 				$obj | Add-Member -MemberType NoteProperty -Name SecretName -Value $Secret.Name
-				$obj | Add-Member -MemberType NoteProperty -Name SecretValue -Value $Value.SecretValueText
-				$obj | Add-Member -MemberType NoteProperty -Name ContentType -Value $Value.ContentType
+				$obj | Add-Member -MemberType NoteProperty -Name SecretValue -Value $Value
+				$obj | Add-Member -MemberType NoteProperty -Name ContentType -Value $Secret.ContentType
 				$obj
 			}
 		}
@@ -810,12 +833,12 @@ function Get-AzureKeyVaultContent
 
 		ForEach($Secret in $Secrets)
 		{
-			$Value = Get-AzKeyVaultSecret -VaultName $vaultname -name $Secret.name
+			$Value = Get-AzureKeyVaultSecretPlainText -VaultName $vaultname -Name $Secret.name
 
 			$obj = New-Object -TypeName psobject	
 			$obj | Add-Member -MemberType NoteProperty -Name SecretName -Value $Secret.Name
-			$obj | Add-Member -MemberType NoteProperty -Name SecretValue -Value $Value.SecretValueText
-			$obj | Add-Member -MemberType NoteProperty -Name ContentType -Value $Value.ContentType
+			$obj | Add-Member -MemberType NoteProperty -Name SecretValue -Value $Value
+			$obj | Add-Member -MemberType NoteProperty -Name ContentType -Value $Secret.ContentType
 			$obj
 		}
 	}
@@ -869,8 +892,8 @@ function Export-AzureKeyVaultContent
 	{
 		$Path = Join-Path $OutFilePath 'Cert.pfx'
 		$cert = Get-AzKeyVaultCertificate -VaultName $Vaultname -Name $Name
-		$secret = Get-AzKeyVaultSecret -VaultName $vaultName -Name $cert.Name
-		$secretByte = [Convert]::FromBase64String($secret.SecretValueText)
+		$secret = Get-AzureKeyVaultSecretPlainText -VaultName $vaultName -Name $cert.Name
+		$secretByte = [Convert]::FromBase64String($secret)
 		$x509Cert = new-object System.Security.Cryptography.X509Certificates.X509Certificate2
 		$x509Cert.Import($secretByte, "", "Exportable,PersistKeySet")
 		$type = [System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx
